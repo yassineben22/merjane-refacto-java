@@ -6,6 +6,7 @@ import com.nimbleways.springboilerplate.repositories.OrderRepository;
 import com.nimbleways.springboilerplate.repositories.ProductRepository;
 import com.nimbleways.springboilerplate.services.implementations.NotificationService;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,49 +32,131 @@ import java.util.Set;
 @SpringBootTest
 @AutoConfigureMockMvc
 public class MyControllerIntegrationTests {
-        @Autowired
-        private MockMvc mockMvc;
+    @Autowired
+    private MockMvc mockMvc;
 
-        @MockBean
-        private NotificationService notificationService;
+    @MockBean
+    private NotificationService notificationService;
 
-        @Autowired
-        private OrderRepository orderRepository;
+    @Autowired
+    private OrderRepository orderRepository;
 
-        @Autowired
-        private ProductRepository productRepository;
+    @Autowired
+    private ProductRepository productRepository;
 
-        @Test
-        public void processOrderShouldReturn() throws Exception {
-                List<Product> allProducts = createProducts();
-                Set<Product> orderItems = new HashSet<Product>(allProducts);
-                Order order = createOrder(orderItems);
-                productRepository.saveAll(allProducts);
-                order = orderRepository.save(order);
-                mockMvc.perform(post("/orders/{orderId}/processOrder", order.getId())
-                                .contentType("application/json"))
-                                .andExpect(status().isOk());
-                Order resultOrder = orderRepository.findById(order.getId()).get();
-                assertEquals(resultOrder.getId(), order.getId());
-        }
+    @Test
+    public void processOrderShouldReturn() throws Exception {
+        List<Product> allProducts = createProducts();
+        Set<Product> orderItems = new HashSet<Product>(allProducts);
+        Order order = createOrder(orderItems);
+        productRepository.saveAll(allProducts);
+        order = orderRepository.save(order);
+        mockMvc.perform(post("/orders/{orderId}/processOrder", order.getId())
+                        .contentType("application/json"))
+                .andExpect(status().isOk());
+        Order resultOrder = orderRepository.findById(order.getId()).get();
+        assertEquals(resultOrder.getId(), order.getId());
+    }
 
-        private static Order createOrder(Set<Product> products) {
-                Order order = new Order();
-                order.setItems(products);
-                return order;
-        }
+    @Test
+    public void normal_inStock_decrementsAvailable() throws Exception {
+        Product p = productRepository.save(
+                new Product(null, 15, 30, "NORMAL", "USB Cable", null, null, null));
+        Order order = orderRepository.save(createOrder(Set.of(p)));
 
-        private static List<Product> createProducts() {
-                List<Product> products = new ArrayList<>();
-                products.add(new Product(null, 15, 30, "NORMAL", "USB Cable", null, null, null));
-                products.add(new Product(null, 10, 0, "NORMAL", "USB Dongle", null, null, null));
-                products.add(new Product(null, 15, 30, "EXPIRABLE", "Butter", LocalDate.now().plusDays(26), null,
-                                null));
-                products.add(new Product(null, 90, 6, "EXPIRABLE", "Milk", LocalDate.now().minusDays(2), null, null));
-                products.add(new Product(null, 15, 30, "SEASONAL", "Watermelon", null, LocalDate.now().minusDays(2),
-                                LocalDate.now().plusDays(58)));
-                products.add(new Product(null, 15, 30, "SEASONAL", "Grapes", null, LocalDate.now().plusDays(180),
-                                LocalDate.now().plusDays(240)));
-                return products;
-        }
+        mockMvc.perform(post("/orders/{orderId}/processOrder", order.getId())
+                        .contentType("application/json"))
+                .andExpect(status().isOk());
+
+        assertEquals(29, productRepository.findById(p.getId()).get().getAvailable().intValue());
+        Mockito.verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    public void normal_outOfStock_notifiesDelay() throws Exception {
+        Product p = productRepository.save(
+                new Product(null, 10, 0, "NORMAL", "USB Dongle", null, null, null));
+        Order order = orderRepository.save(createOrder(Set.of(p)));
+
+        mockMvc.perform(post("/orders/{orderId}/processOrder", order.getId())
+                        .contentType("application/json"))
+                .andExpect(status().isOk());
+
+        Mockito.verify(notificationService).sendDelayNotification(10, "USB Dongle");
+    }
+
+    @Test
+    public void seasonal_inSeason_decrementsAvailable() throws Exception {
+        Product p = productRepository.save(new Product(null, 15, 30, "SEASONAL", "Watermelon",
+                null, LocalDate.now().minusDays(2), LocalDate.now().plusDays(58)));
+        Order order = orderRepository.save(createOrder(Set.of(p)));
+
+        mockMvc.perform(post("/orders/{orderId}/processOrder", order.getId())
+                        .contentType("application/json"))
+                .andExpect(status().isOk());
+
+        assertEquals(29, productRepository.findById(p.getId()).get().getAvailable().intValue());
+        Mockito.verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    public void seasonal_outOfSeason_notifiesOutOfStock() throws Exception {
+        Product p = productRepository.save(new Product(null, 15, 30, "SEASONAL", "Grapes",
+                null, LocalDate.now().plusDays(180), LocalDate.now().plusDays(240)));
+        Order order = orderRepository.save(createOrder(Set.of(p)));
+
+        mockMvc.perform(post("/orders/{orderId}/processOrder", order.getId())
+                        .contentType("application/json"))
+                .andExpect(status().isOk());
+
+        Mockito.verify(notificationService).sendOutOfStockNotification("Grapes");
+    }
+
+    @Test
+    public void expirable_notExpired_decrementsAvailable() throws Exception {
+        Product p = productRepository.save(new Product(null, 15, 30, "EXPIRABLE", "Butter",
+                LocalDate.now().plusDays(26), null, null));
+        Order order = orderRepository.save(createOrder(Set.of(p)));
+
+        mockMvc.perform(post("/orders/{orderId}/processOrder", order.getId())
+                        .contentType("application/json"))
+                .andExpect(status().isOk());
+
+        assertEquals(29, productRepository.findById(p.getId()).get().getAvailable().intValue());
+        Mockito.verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    public void expirable_expired_notifiesAndSetsAvailableToZero() throws Exception {
+        LocalDate expiry = LocalDate.now().minusDays(2);
+        Product p = productRepository.save(
+                new Product(null, 90, 6, "EXPIRABLE", "Milk", expiry, null, null));
+        Order order = orderRepository.save(createOrder(Set.of(p)));
+
+        mockMvc.perform(post("/orders/{orderId}/processOrder", order.getId())
+                        .contentType("application/json"))
+                .andExpect(status().isOk());
+
+        assertEquals(0, productRepository.findById(p.getId()).get().getAvailable().intValue());
+        Mockito.verify(notificationService).sendExpirationNotification("Milk", expiry);
+    }
+
+    private static Order createOrder(Set<Product> products) {
+        Order order = new Order();
+        order.setItems(products);
+        return order;
+    }
+
+    private static List<Product> createProducts() {
+        List<Product> products = new ArrayList<>();
+        products.add(new Product(null, 15, 30, "NORMAL", "USB Cable", null, null, null));
+        products.add(new Product(null, 10, 0, "NORMAL", "USB Dongle", null, null, null));
+        products.add(new Product(null, 15, 30, "EXPIRABLE", "Butter", LocalDate.now().plusDays(26), null, null));
+        products.add(new Product(null, 90, 6, "EXPIRABLE", "Milk", LocalDate.now().minusDays(2), null, null));
+        products.add(new Product(null, 15, 30, "SEASONAL", "Watermelon", null,
+                LocalDate.now().minusDays(2), LocalDate.now().plusDays(58)));
+        products.add(new Product(null, 15, 30, "SEASONAL", "Grapes", null,
+                LocalDate.now().plusDays(180), LocalDate.now().plusDays(240)));
+        return products;
+    }
 }
