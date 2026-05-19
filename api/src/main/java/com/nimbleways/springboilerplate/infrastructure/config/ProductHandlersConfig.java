@@ -2,6 +2,7 @@ package com.nimbleways.springboilerplate.infrastructure.config;
 
 import com.nimbleways.springboilerplate.domain.products.ProductHandler;
 import com.nimbleways.springboilerplate.domain.products.ProductHandlerRegistry;
+import com.nimbleways.springboilerplate.domain.products.handlers.ExpirableProductHandler;
 import com.nimbleways.springboilerplate.domain.products.handlers.NormalProductHandler;
 import com.nimbleways.springboilerplate.domain.products.handlers.SeasonalProductHandler;
 import com.nimbleways.springboilerplate.domain.ports.out.NotificationPort;
@@ -15,13 +16,18 @@ import java.util.List;
 public class ProductHandlersConfig {
 
     @Bean
-    public ProductHandler normalProductHandler(ProductRepositoryPort products, NotificationPort notifications) {
-        return new NormalProductHandler(products, notifications);
+    public ProductHandler normalProductHandler(ProductRepositoryPort p, NotificationPort n) {
+        return new NormalProductHandler(p, n);
     }
 
     @Bean
-    public ProductHandler seasonalProductHandler(ProductRepositoryPort products, NotificationPort notifications) {
-        return new SeasonalProductHandler(products, notifications);
+    public ProductHandler seasonalProductHandler(ProductRepositoryPort p, NotificationPort n) {
+        return new SeasonalProductHandler(p, n);
+    }
+
+    @Bean
+    public ProductHandler expirableProductHandler(ProductRepositoryPort p, NotificationPort n) {
+        return new ExpirableProductHandler(p, n);
     }
 
     @Bean
