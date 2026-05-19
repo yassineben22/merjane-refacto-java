@@ -25,14 +25,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/orders")
 public class MyController {
-    @Autowired
-    private ProductService ps;
-    @Autowired
-    private ProductRepository pr;
-    @Autowired
-    private OrderRepository or;
-    @Autowired
-    private ProductHandlerRegistry productHandlers;
+    @Autowired private ProductService ps;
+    @Autowired private ProductRepository pr;
+    @Autowired private OrderRepository or;
+    @Autowired private ProductHandlerRegistry productHandlers;
 
     @PostMapping("{orderId}/processOrder")
     @ResponseStatus(HttpStatus.OK)
@@ -42,17 +38,7 @@ public class MyController {
         for (Product p : products) {
             ProductType type = ProductType.from(p.getType());
             switch (type) {
-                case NORMAL -> productHandlers.handle(p);
-                case SEASONAL -> {
-                    if (LocalDate.now().isAfter(p.getSeasonStartDate())
-                            && LocalDate.now().isBefore(p.getSeasonEndDate())
-                            && p.getAvailable() > 0) {
-                        p.setAvailable(p.getAvailable() - 1);
-                        pr.save(p);
-                    } else {
-                        ps.handleSeasonalProduct(p);
-                    }
-                }
+                case NORMAL, SEASONAL -> productHandlers.handle(p);
                 case EXPIRABLE -> {
                     if (p.getAvailable() > 0 && p.getExpiryDate().isAfter(LocalDate.now())) {
                         p.setAvailable(p.getAvailable() - 1);
